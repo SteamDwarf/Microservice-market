@@ -1,6 +1,7 @@
 from decimal import Decimal
 from typing import Optional
 
+from pydantic import computed_field
 from sqlmodel import Field, SQLModel
 
 
@@ -10,6 +11,7 @@ class ProductBase(SQLModel):
     cost_price: Decimal = Field(default=0, max_digits=12, decimal_places=2)
     quantity: int = Field(default=0, ge=0)
 
+    @computed_field
     @property
     def user_price(self) -> Decimal:
         return (self.cost_price * Decimal("1.2")).quantize(Decimal("0.01"))
@@ -21,4 +23,3 @@ class Product(ProductBase, table=True):
 
 class ProductRead(ProductBase):
     id: int
-    user_price: Decimal
