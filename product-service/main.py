@@ -2,11 +2,13 @@ from contextlib import asynccontextmanager
 
 from config import settings
 from database import get_session, init_db
-from fastapi import APIRouter, Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from models import Product, ProductRead
+from models import Product
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+
+from common.model import ProductRead
 
 
 @asynccontextmanager
@@ -44,6 +46,21 @@ async def products(session: AsyncSession = Depends(get_session)):
     products_list = result.scalars().all()
 
     return products_list
+
+
+@products_router.get("/products/{product_id}", response_model=ProductRead)
+async def product_by_id(
+    product_id: int, session: AsyncSession = Depends(get_session)
+):
+    product = await session.get(Product, product_id)
+
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Product with id {product_id} not found",
+        )
+
+    return product
 
 
 app.include_router(products_router)
