@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from decimal import Decimal
 
 from auth import (
     create_access_token,
@@ -12,6 +13,8 @@ from config import settings
 from database import get_session, init_db
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from faststream import FastStream
+from faststream.rabbit import RabbitBroker
 from models import (
     AccessToken,
     TokenPair,
@@ -25,11 +28,63 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+broker = RabbitBroker(
+    "amqp://guest:guest@rabbitmq:5672/", connection_timeout=20
+)
+app_stream = FastStream(broker)
+
+
+@broker.subscriber("orders.created")
+async def handle_order_payment(data: dict):
+    user_id = data.get("user_id")
+    order_id = data.get("order_id")
+    total = Decimal(data.get("total"))
+
+    async with get_session() as session:
+        statement = select(User).where(User.id == user_id).with_for_update()
+        result = await session.execute(statement)
+        user = result.scalars().first()
+
+        if user and user.balance >= total:
+            user.balance -= total
+            session.add(user)
+
+            await session.commit()
+
+            await broker.publish(
+                {"order_id": order_id, "status": "success"},
+                queue="payment.results",
+            )
+
+            print(
+                f"Баланс пользователя {user_id} успешно списан на сумму {total} (Заказ #{order_id})"
+            )
+        else:
+            if not user:
+                print(f"Ошибка: Пользователь {user_id} не найден")
+
+            if user.balance < total:
+                print(
+                    f"Ошибка: Недостаточно средств у юзера {user_id} для заказа {order_id}"
+                )
+
+            await broker.publish(
+                {
+                    "order_id": order_id,
+                    "status": "fail",
+                },
+                queue="payment.results",
+            )
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await broker.connect()
+
     yield
+
+    await broker.stop()
 
 
 app = FastAPI(lifespan=lifespan)

@@ -12,6 +12,7 @@ pytest = "*"
 pytest-asyncio = "*"
 sqlmodel = "*"
 uvicorn = "*"
+faststream = {extras = ["rabbit", "cli"], version = "*"}
 
 [dev-packages]
 

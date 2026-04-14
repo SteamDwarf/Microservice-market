@@ -4,15 +4,14 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-fastapi = "*"
-uvicorn = "*"
-sqlmodel = "*"
-sqlalchemy = "*"
 asyncpg = "*"
+fastapi = "*"
+httpx = "*"
+pydantic = "*"
 pydantic-settings = "*"
 pytest = "*"
-pytest-asyncio = "*"
-httpx = "*"
+sqlmodel = "*"
+uvicorn = "*"
 faststream = {extras = ["cli", "rabbit"], version = "*"}
 
 [dev-packages]

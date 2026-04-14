@@ -15,6 +15,7 @@ asyncpg = "*"
 python-multipart = "*"
 uvicorn = "*"
 python-jose = {extras = ["cryptography"], version = "*"}
+faststream = {extras = ["rabbit", "cli"], version = "*"}
 
 [dev-packages]
 

@@ -1,5 +1,19 @@
 services:
-  # База данных (общая или раздельная - в микросервисах лучше раздельная)
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   postgres:
     image: postgres:15-alpine
     environment:
@@ -21,6 +35,8 @@ services:
       context: .
       dockerfile: ./auth-service/Dockerfile
     env_file: ./auth-service/.env
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
     restart: always
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
@@ -28,6 +44,8 @@ services:
       - ./common:/app/common
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     ports:
       - "8001:8000"
@@ -38,6 +56,8 @@ services:
       context: .
       dockerfile: ./cart-service/Dockerfile
     env_file: ./cart-service/.env
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
     restart: always
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
@@ -45,6 +65,8 @@ services:
       - ./common:/app/common
     depends_on:
       postgres:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     ports:
       - "8002:8000"
@@ -54,6 +76,8 @@ services:
       context: .
       dockerfile: ./product-service/Dockerfile
     env_file: ./product-service/.env
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
     restart: always
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     volumes:
@@ -62,8 +86,30 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     ports:
       - "8003:8000"
+
+  order-service:
+    build:
+      context: .
+      dockerfile: ./order-service/Dockerfile
+    env_file: ./order-service/.env
+    environment:
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672/
+    restart: always
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./order-service:/app
+      - ./common:/app/common
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8004:8000"
 
   product-seed:
     build:

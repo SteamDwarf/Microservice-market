@@ -4,17 +4,49 @@ from config import settings
 from database import get_session, init_db
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from model import Cart, CartItem, CartItemBase, CartItemPatch, CartRead
+from faststream import FastStream
+from faststream.rabbit import RabbitBroker
+from models import Cart, CartItem, CartItemBase, CartItemPatch, CartRead
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlmodel import select
-from utils import get_current_user_id, get_product
+from sqlmodel import delete, select
+
+from common.models import UserRead
+from common.utils import get_current_user, get_product
+
+# ... твои импорты сессии ...
+
+broker = RabbitBroker(
+    "amqp://guest:guest@rabbitmq:5672/", connection_timeout=20
+)
+app_stream = FastStream(broker)
+
+
+@broker.subscriber("cart.clear")
+async def handle_cart_clear(data: dict):
+    user_id = data.get("user_id")
+
+    async with get_session() as session:
+        # 1. Находим ID корзины пользователя
+        cart_stmt = select(Cart.id).where(Cart.user_id == user_id)
+        cart_id = (await session.execute(cart_stmt)).first()
+
+        if cart_id:
+            # 2. Удаляем все товары из этой корзины
+            delete_stmt = delete(CartItem).where(CartItem.cart_id == cart_id)
+            await session.execute(delete_stmt)
+            await session.commit()
+            print(f"Корзина пользователя {user_id} успешно очищена.")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await broker.connect()
+
     yield
+
+    await broker.stop()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -96,9 +128,9 @@ async def get_cart_item(
 @cart_router.get("/", response_model=CartRead)
 async def cart(
     session: AsyncSession = Depends(get_session),
-    user_id: int = Depends(get_current_user_id),
+    user: UserRead = Depends(get_current_user),
 ):
-    cart = await get_or_create_cart(session, user_id)
+    cart = await get_or_create_cart(session, user.id)
 
     return cart
 
@@ -107,7 +139,7 @@ async def cart(
 async def add_items(
     cart_item: CartItemBase,
     session: AsyncSession = Depends(get_session),
-    user_id: int = Depends(get_current_user_id),
+    user: UserRead = Depends(get_current_user),
 ):
     product = await get_product(cart_item.product_id)
 
@@ -117,7 +149,7 @@ async def add_items(
             detail=f"Insufficient stock. Available: {product.quantity}",
         )
 
-    cart = await get_or_create_cart(session, user_id)
+    cart = await get_or_create_cart(session, user.id)
 
     statement = select(CartItem).where(
         CartItem.cart_id == cart.id,
@@ -142,7 +174,7 @@ async def add_items(
     await session.commit()
     await session.refresh(cart)
 
-    return await get_or_create_cart(session, user_id)
+    return await get_or_create_cart(session, user.id)
 
 
 @cart_router.patch("/items/{id}/", response_model=CartRead)
@@ -150,9 +182,9 @@ async def increase_quantity(
     id: int,
     patch_data: CartItemPatch,
     session: AsyncSession = Depends(get_session),
-    user_id: int = Depends(get_current_user_id),
+    user: UserRead = Depends(get_current_user),
 ):
-    cart = await get_or_create_cart(session, user_id)
+    cart = await get_or_create_cart(session, user.id)
     existing_item = await get_cart_item(session, cart, id)
 
     await change_cart_item_quantity(
@@ -162,23 +194,23 @@ async def increase_quantity(
     await session.commit()
     await session.refresh(cart)
 
-    return await get_or_create_cart(session, user_id)
+    return await get_or_create_cart(session, user.id)
 
 
 @cart_router.delete("/items/{id}/", response_model=CartRead)
 async def delete_cart_item(
     id: int,
     session: AsyncSession = Depends(get_session),
-    user_id: int = Depends(get_current_user_id),
+    user: UserRead = Depends(get_current_user),
 ):
-    cart = await get_or_create_cart(session, user_id)
+    cart = await get_or_create_cart(session, user.id)
     existing_item = await get_cart_item(session, cart, id)
 
     await session.delete(existing_item)
     await session.commit()
     await session.refresh(cart)
 
-    return await get_or_create_cart(session, user_id)
+    return await get_or_create_cart(session, user.id)
 
 
 app.include_router(cart_router)

@@ -2,14 +2,14 @@ import httpx
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 
-from common.model import ProductRead
+from common.models import CartRead, ProductRead, UserRead
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="http://auth-service:8000/api/auth/token/"
 )
 
 
-async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> int:
+async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserRead:
     async with httpx.AsyncClient() as client:
         try:
             response = await client.get(
@@ -21,7 +21,7 @@ async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> int:
 
             user_data = response.json()
 
-            return user_data["id"]
+            return UserRead(**user_data)
         except httpx.RequestError:
             raise HTTPException(
                 status_code=503, detail="Auth service unavailable"
@@ -47,3 +47,42 @@ async def get_product(product_id: int) -> ProductRead:
             raise HTTPException(
                 status_code=503, detail="Product service unavailable"
             )
+
+
+async def get_cart(token: str) -> CartRead:
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(
+                "http://cart-service:8000/api/cart/",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if response.status_code != 200:
+                raise HTTPException(status_code=404, detail="Cart not found")
+
+            cart_data = response.json()
+
+            return CartRead(**cart_data)
+        except httpx.RequestError as e:
+            print(e)
+            raise HTTPException(
+                status_code=503, detail="Cart service unavailable"
+            )
+
+
+""" async def init_broker(broker: RabbitBroker):
+    connected = False
+
+    for i in range(10):
+        try:
+            await broker.connect()
+            connected = True
+            break
+        except (AMQPConnectionError, ConnectionError):
+            print(f"RabbitMQ пока недоступен (попытка {i + 1})...")
+            await asyncio.sleep(3)
+
+    if not connected:
+        raise RuntimeError(
+            "Не удалось подключиться к RabbitMQ после 10 попыток"
+        )
+ """
