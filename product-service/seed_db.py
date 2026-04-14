@@ -40,10 +40,10 @@ async def seed_products():
 
             if not result.scalars().first():
                 session.add(product)
-                print(f"Добавляю: {product.name}")
+                print(f"Product {product.name} successfully added to database")
 
         await session.commit()
-        print("База успешно наполнена!")
+        print("Database successfully seeded")
 
 
 if __name__ == "__main__":

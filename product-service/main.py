@@ -37,10 +37,14 @@ async def handle_stock_decrease(data: dict):
                 product.quantity -= qty_to_decrease
                 session.add(product)
                 print(
-                    f"Списано {qty_to_decrease} шт. товара {product.name} для заказа {order_id}"
+                    f"Deducted {qty_to_decrease} units of product "
+                    f"{product.name} for order {order_id}"
                 )
             else:
-                print(f"Ошибка: Товар {product_id} не найден при списании!")
+                print(
+                    f"Error: Product {product_id} not found while "
+                    f"deducting stock"
+                )
 
         await session.commit()
 

@@ -63,14 +63,10 @@ async def handle_payment_result(data: dict):
                 {"user_id": order.user_id}, queue="cart.clear"
             )
 
-            print(f"Заказ {order_id} успешно оплачен")
+            print(f"Order {order_id} successfully paid")
         else:
             order.status = OrderStatus.CANCELLED
-            print(f"Заказ {order_id} отменен")
-
-            """ await broker.publish(
-                {"order_id": order_id}, queue="stock.rollback"
-            ) """
+            print(f"Order {order_id} cancelled")
 
         session.add(order)
         await session.commit()

@@ -57,15 +57,17 @@ async def handle_order_payment(data: dict):
             )
 
             print(
-                f"Баланс пользователя {user_id} успешно списан на сумму {total} (Заказ #{order_id})"
+                f"Successfully charged {total} from user {user_id} "
+                f"for order #{order_id}"
             )
         else:
             if not user:
-                print(f"Ошибка: Пользователь {user_id} не найден")
+                print(f"Error: User {user_id} not found")
 
             if user and user.balance < total:
                 print(
-                    f"Ошибка: Недостаточно средств у юзера {user_id} для заказа {order_id}"
+                    f"Error: Insufficient funds for user {user_id} "
+                    f"to pay for order {order_id}"
                 )
 
             await broker.publish(
@@ -225,7 +227,7 @@ async def top_up(
     except Exception:
         await session.rollback()
         raise HTTPException(
-            status_code=500, detail="Ошибка при пополнении баланса"
+            status_code=500, detail="Failed to top up balance"
         )
 
 

@@ -39,7 +39,7 @@ async def handle_cart_clear(data: dict):
             delete_stmt = delete(CartItem).where(CartItem.cart_id == cart_id)
             await session.execute(delete_stmt)
             await session.commit()
-            print(f"Корзина пользователя {user_id} успешно очищена.")
+            print(f"Successfully cleared cart for user_id: {user_id}")
 
 
 @asynccontextmanager
