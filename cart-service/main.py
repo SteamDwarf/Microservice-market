@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 
 from config import settings
-from database import get_session, init_db
+from database import get_session, init_db, session_context
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from faststream import FastStream
@@ -12,13 +12,16 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import delete, select
 
 from common.models import UserRead
-from common.utils import get_current_user, get_product
+from common.utils import (
+    connect_broker_with_retry,
+    get_current_user,
+    get_product,
+    get_rabbitmq_url,
+)
 
 # ... твои импорты сессии ...
 
-broker = RabbitBroker(
-    "amqp://guest:guest@rabbitmq:5672/", connection_timeout=20
-)
+broker = RabbitBroker(get_rabbitmq_url())
 app_stream = FastStream(broker)
 
 
@@ -26,10 +29,10 @@ app_stream = FastStream(broker)
 async def handle_cart_clear(data: dict):
     user_id = data.get("user_id")
 
-    async with get_session() as session:
+    async with session_context() as session:
         # 1. Находим ID корзины пользователя
         cart_stmt = select(Cart.id).where(Cart.user_id == user_id)
-        cart_id = (await session.execute(cart_stmt)).first()
+        cart_id = (await session.execute(cart_stmt)).scalar_one_or_none()
 
         if cart_id:
             # 2. Удаляем все товары из этой корзины
@@ -42,7 +45,7 @@ async def handle_cart_clear(data: dict):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    await broker.connect()
+    await connect_broker_with_retry(broker)
 
     yield
 

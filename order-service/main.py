@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import List
 
 from config import settings
-from database import get_session, init_db
+from database import get_session, init_db, session_context
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
@@ -15,12 +15,16 @@ from sqlalchemy.orm import selectinload
 from sqlmodel import select
 
 from common.models import UserRead
-from common.utils import get_cart, get_current_user, get_product
+from common.utils import (
+    connect_broker_with_retry,
+    get_cart,
+    get_current_user,
+    get_product,
+    get_rabbitmq_url,
+)
 
 # 1. Создаем брокер
-broker = RabbitBroker(
-    "amqp://guest:guest@rabbitmq:5672/", connection_timeout=20
-)
+broker = RabbitBroker(get_rabbitmq_url())
 app_stream = FastStream(broker)
 
 
@@ -30,8 +34,14 @@ async def handle_payment_result(data: dict):
     order_id = data.get("order_id")
     status = data.get("status")
 
-    async with get_session() as session:
-        order = await session.get(Order, order_id)
+    async with session_context() as session:
+        statement = (
+            select(Order)
+            .where(Order.id == order_id)
+            .options(selectinload(Order.items))
+        )
+        result = await session.execute(statement)
+        order = result.scalar_one_or_none()
 
         if not order:
             return
@@ -74,7 +84,7 @@ oauth2_scheme = OAuth2PasswordBearer(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    await broker.connect()
+    await connect_broker_with_retry(broker)
 
     yield
 
@@ -116,7 +126,7 @@ async def list_orders(
     )
     results = await session.execute(statement)
 
-    return results.all()
+    return results.scalars().all()
 
 
 @orders_router.post("/", response_model=OrderRead)
@@ -164,17 +174,24 @@ async def create_order(
             session.add(order_item)
 
         # 6. Финализация: списываем деньги и чистим корзину
-        await broker.publish(
-            {
-                "order_id": new_order.id,
-                "user_id": user.id,
-                "total": str(total),
-            },
-            queue="orders.created",
-        )
+    # Publish only after the order transaction is committed.
+    await broker.publish(
+        {
+            "order_id": new_order.id,
+            "user_id": user.id,
+            "total": str(total),
+        },
+        queue="orders.created",
+    )
     # Сбрасываем кэш объекта, чтобы подтянулись items для response_model
-    await session.refresh(new_order)
-    return new_order
+    statement = (
+        select(Order)
+        .where(Order.id == new_order.id)
+        .options(selectinload(Order.items))
+    )
+    result = await session.execute(statement)
+
+    return result.scalar_one()
 
 
 app.include_router(orders_router)

@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from config import settings
@@ -16,6 +17,12 @@ async def init_db():
         await conn.run_sync(SQLModel.metadata.create_all)
 
 
-async def get_session() -> AsyncGenerator[AsyncSession, None]:
+@asynccontextmanager
+async def session_context() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_factory() as session:
+        yield session
+
+
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    async with session_context() as session:
         yield session

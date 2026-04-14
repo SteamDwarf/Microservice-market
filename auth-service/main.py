@@ -10,7 +10,7 @@ from auth import (
     verify_password,
 )
 from config import settings
-from database import get_session, init_db
+from database import get_session, init_db, session_context
 from fastapi import APIRouter, Body, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from faststream import FastStream
@@ -28,9 +28,9 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-broker = RabbitBroker(
-    "amqp://guest:guest@rabbitmq:5672/", connection_timeout=20
-)
+from common.utils import connect_broker_with_retry, get_rabbitmq_url
+
+broker = RabbitBroker(get_rabbitmq_url())
 app_stream = FastStream(broker)
 
 
@@ -40,7 +40,7 @@ async def handle_order_payment(data: dict):
     order_id = data.get("order_id")
     total = Decimal(data.get("total"))
 
-    async with get_session() as session:
+    async with session_context() as session:
         statement = select(User).where(User.id == user_id).with_for_update()
         result = await session.execute(statement)
         user = result.scalars().first()
@@ -63,7 +63,7 @@ async def handle_order_payment(data: dict):
             if not user:
                 print(f"Ошибка: Пользователь {user_id} не найден")
 
-            if user.balance < total:
+            if user and user.balance < total:
                 print(
                     f"Ошибка: Недостаточно средств у юзера {user_id} для заказа {order_id}"
                 )
@@ -80,7 +80,7 @@ async def handle_order_payment(data: dict):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    await broker.connect()
+    await connect_broker_with_retry(broker)
 
     yield
 

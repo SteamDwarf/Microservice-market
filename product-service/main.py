@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 
 from config import settings
-from database import get_session, init_db
+from database import get_session, init_db, session_context
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from faststream import FastStream
@@ -9,8 +9,9 @@ from faststream.rabbit import RabbitBroker
 from models import Product, ProductRead
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+from common.utils import connect_broker_with_retry, get_rabbitmq_url
 
-broker = RabbitBroker("amqp://guest:guest@rabbitmq:5672/", connection_timeout=20)
+broker = RabbitBroker(get_rabbitmq_url())
 app_stream = FastStream(broker)
 
 
@@ -19,7 +20,7 @@ async def handle_stock_decrease(data: dict):
     order_id = data.get("order_id")
     items = data.get("items", [])
 
-    async with get_session() as session:
+    async with session_context() as session:
         for item_data in items:
             product_id = item_data["product_id"]
             qty_to_decrease = item_data["quantity"]
@@ -30,7 +31,7 @@ async def handle_stock_decrease(data: dict):
                 .with_for_update()
             )
             result = await session.execute(statement)
-            product = result.first()
+            product = result.scalar_one_or_none()
 
             if product:
                 product.quantity -= qty_to_decrease
@@ -47,7 +48,7 @@ async def handle_stock_decrease(data: dict):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
-    await broker.connect()
+    await connect_broker_with_retry(broker)
 
     yield
 

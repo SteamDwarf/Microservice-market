@@ -1,8 +1,15 @@
+import asyncio
+import os
+
 import httpx
+from aiormq.exceptions import AMQPConnectionError
 from fastapi import Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
+from faststream.rabbit import RabbitBroker
 
 from common.models import CartRead, ProductRead, UserRead
+
+DEFAULT_RABBITMQ_URL = "amqp://guest:guest@rabbitmq:5672/"
 
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="http://auth-service:8000/api/auth/token/"
@@ -69,20 +76,32 @@ async def get_cart(token: str) -> CartRead:
             )
 
 
-""" async def init_broker(broker: RabbitBroker):
-    connected = False
+def get_rabbitmq_url() -> str:
+    return os.getenv("RABBITMQ_URL", DEFAULT_RABBITMQ_URL)
 
-    for i in range(10):
+
+async def connect_broker_with_retry(
+    broker: RabbitBroker, retries: int = 10, delay: int = 3
+) -> None:
+    last_error = None
+
+    for attempt in range(1, retries + 1):
         try:
-            await broker.connect()
-            connected = True
-            break
-        except (AMQPConnectionError, ConnectionError):
-            print(f"RabbitMQ пока недоступен (попытка {i + 1})...")
-            await asyncio.sleep(3)
+            # `connect()` only opens a connection. We need `start()` so
+            # subscribers begin consuming messages from RabbitMQ.
+            await broker.start()
+            return
+        except (AMQPConnectionError, ConnectionError, OSError) as exc:
+            last_error = exc
+            if attempt == retries:
+                break
 
-    if not connected:
-        raise RuntimeError(
-            "Не удалось подключиться к RabbitMQ после 10 попыток"
-        )
- """
+            print(
+                f"RabbitMQ is unavailable "
+                f"(attempt {attempt}/{retries}): {exc}"
+            )
+            await asyncio.sleep(delay)
+
+    raise RuntimeError(
+        f"Could not connect to RabbitMQ after {retries} attempts"
+    ) from last_error
